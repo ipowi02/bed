@@ -2,49 +2,84 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include <fcntl.h>
 
+#include <ctype.h>
 
-#include "../tools/base.h"
+#include "./include/da/da.h"
+#include "./include/base.h"
 
-#define TMPBUF_SIZE 128*1000
 #define FNAMEBUF_SIZE 64
 #define TMP_SIZE 128
 
-char tmpbuf[TMPBUF_SIZE] = {0};
-size_t bufcursor = 0;
 
-size_t linecntr = 0;
-char *linecursor = tmpbuf;
+struct buffer {
+     da_member(char*);
 
-int advanceline() {
-     char *linecursor = strchr(linecursor, '\n');
-     if (linecursor == NULL) {
-	  return -1;
-	  // no more lines
-     }
+     size_t current;
+     char *filename;
+     
+} buf = {0};
 
-     linecntr++;
-     return 0;
+struct command {
+     int start, end; // some sentinel will denote if it is not a range
+
+     enum {
+	  CMD_ERR = 0,
+
+	  CMD_I,
+	  CMD_C,
+	  CMD_A,
+
+	  CMD_P,
+	  CMD_N,
+	  CMD_Q
+     } kind;
+     
+} cmd = {0};
+
+void insert(struct buffer *buf, size_t after, const char *line) {
+     da_insert(buf, after+1, line);
+}
+void delete(struct buffer *buf, size_t n) {
+     da_remove(buf, n);
 }
 
-char *queryline(int lineno) {
-     char *ret = tmpbuf;
-     while ((ret = strchr(ret, '\n')) != NULL && lineno)
-	  lineno--;
-     // TODO: make it O(1) amortized somehow
+struct command parse_cmd(char *cmd) {
+     struct command ret = {0};
+
+     while (isdigit(*cmd))
+	  cmd++;
+
+     switch(*cmd) {
+     case 'a':
+	  ret.kind = CMD_A;
+	  break;
+     case 'p':
+	  ret.kind = CMD_P;
+	  break;
+     case 'q':
+	  ret.kind = CMD_Q;
+	  break;
+     case 'n':
+	  ret.kind = CMD_N;
+	  break;
+     }
      return ret;
 }
 
-char fnamebuf[FNAMEBUF_SIZE] = {0};
-
-char input_mode = 0;
+enum {
+     INPUT_MODE,
+     COMMAND_MODE,
+} state = COMMAND_MODE;
 
 
 
 int main(int argc, char **argv) {
      const char *program_name = *argv++;
      const char *input_file = NULL;
+     char line[TMP_SIZE] = {0};
+
+     da_reserve(&buf, 1024);
      
      if (argv != NULL) {
 	  input_file = *argv++;
@@ -58,33 +93,33 @@ int main(int argc, char **argv) {
 	  assert(fileinfo(f, NULL, 0, &input_size) > 0);
 	  printf("%zu\n", input_size);
      }
+
+
+
      
-     char* ret;
-
+     
+     int len;
      do {
-	  if (!input_mode) {
-	       char cmd[TMP_SIZE] = {0};
-	       ret = fgets(cmd, TMP_SIZE, stdin);
-	       
-	       assert(ret != NULL && "failed at cmd");
-	     
-	       // look up command
-	  } else {
-	       ret = fgets(tmpbuf + bufcursor, TMP_SIZE, stdin);
-	       
-	       assert(ret != NULL && "i dunno what hppened");
+	  len = strlen(fgets(line, TMP_SIZE, stdin));
+	  line[--len] = '\0';
 
-	       size_t retsize = strlen(ret);
-	       if (strcmp(ret, ".") == 0) {
-		    input_mode = 0;
+	  if (state == INPUT_MODE) {
+	       if (strcmp(line, ".") == 0) {
+		    state = COMMAND_MODE;
 		    continue;
 	       }
+
+	       da_push(&buf, line);
 	       
-	       
-	       bufcursor += retsize;
-	       tmpbuf[bufcursor++] = '\n';
-	       
-	       
+	  } else if (state == COMMAND_MODE) {
+	       if (!(strcmp(line, "c") || strcmp(line, "a") || strcmp(line, "i"))) {
+		    state = INPUT_MODE;
+		    continue;
+	       } else {
+		    // execute command
+	       }
 	  }
+	  
      } while (1);
+     
 }
